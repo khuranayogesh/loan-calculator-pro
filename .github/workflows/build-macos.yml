@@ -18,10 +18,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -101,14 +101,14 @@ jobs:
         ls -lh LoanCalculatorPro.dmg
     
     - name: Upload DMG as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: LoanCalculatorPro-macOS-DMG
         path: LoanCalculatorPro.dmg
         retention-days: 30
     
     - name: Upload App Bundle as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: LoanCalculatorPro-macOS-App
         path: dist/Loan Calculator Pro.app
@@ -126,4 +126,5 @@ jobs:
       with:
         files: LoanCalculatorPro.dmg
         body: |
-
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
