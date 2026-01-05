@@ -1,16 +1,9 @@
 name: Build macOS Application
 
 on:
-  # Trigger on push to main branch
   push:
     branches: [ main, master ]
-  
-  # Allow manual trigger from Actions tab
   workflow_dispatch:
-  
-  # Trigger on release
-  release:
-    types: [created]
 
 jobs:
   build-macos:
@@ -25,79 +18,75 @@ jobs:
       with:
         python-version: '3.11'
     
-    - name: Install Python dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install PyQt6==6.6.1 openpyxl python-dateutil py2app
+        pip install pyinstaller PyQt6 openpyxl python-dateutil
     
-    - name: Create setup.py for py2app
+    - name: Verify installation
       run: |
-        cat > setup.py << 'EOF'
-        from setuptools import setup
-
-        APP = ['loan_calculator.py']
-        DATA_FILES = []
-        OPTIONS = {
-            'argv_emulation': True,
-            'packages': ['PyQt6', 'openpyxl', 'dateutil', 'calendar', 'json', 'os'],
-            'includes': [
-                'PyQt6.QtCore',
-                'PyQt6.QtGui', 
-                'PyQt6.QtWidgets',
-                'openpyxl.styles',
-                'openpyxl.utils',
-                'dateutil.relativedelta'
-            ],
-            'plist': {
-                'CFBundleName': 'Loan Calculator Pro',
-                'CFBundleDisplayName': 'Loan Calculator Pro',
-                'CFBundleGetInfoString': "Professional Loan Calculator with Amortization Schedule",
-                'CFBundleIdentifier': "com.loancalculator.pro",
-                'CFBundleVersion': "1.0.0",
-                'CFBundleShortVersionString': "1.0.0",
-                'NSHumanReadableCopyright': "Copyright © 2024 Yogesh Khurana. All Rights Reserved",
-                'NSHighResolutionCapable': True,
-            }
-        }
-
-        setup(
-            app=APP,
-            name='Loan Calculator Pro',
-            data_files=DATA_FILES,
-            options={'py2app': OPTIONS},
-            setup_requires=['py2app'],
-        )
-        EOF
-        
-        cat setup.py
+        python -c "import PyQt6; print('PyQt6 version:', PyQt6.QtCore.qVersion())"
+        python -c "import openpyxl; print('openpyxl installed')"
+        python -c "import dateutil; print('dateutil installed')"
     
-    - name: Build macOS application
+    - name: Build macOS application with PyInstaller
       run: |
-        echo "Building application..."
-        python setup.py py2app
-        
-        echo "Verifying build..."
+        pyinstaller \
+          --name "Loan Calculator Pro" \
+          --windowed \
+          --onedir \
+          --icon=NONE \
+          --osx-bundle-identifier com.loancalculator.pro \
+          --hidden-import PyQt6.QtCore \
+          --hidden-import PyQt6.QtGui \
+          --hidden-import PyQt6.QtWidgets \
+          --hidden-import openpyxl \
+          --hidden-import openpyxl.styles \
+          --hidden-import openpyxl.utils \
+          --hidden-import openpyxl.cell \
+          --hidden-import dateutil \
+          --hidden-import dateutil.relativedelta \
+          --collect-all PyQt6 \
+          --collect-all openpyxl \
+          loan_calculator.py
+    
+    - name: Verify build
+      run: |
+        echo "Listing dist directory:"
         ls -la dist/
+        
+        if [ -d "dist/Loan Calculator Pro.app" ]; then
+          echo "✓ App bundle created successfully"
+          echo "App contents:"
+          ls -la "dist/Loan Calculator Pro.app/Contents/"
+        else
+          echo "✗ Error: App bundle not found"
+          exit 1
+        fi
     
     - name: Create DMG installer
       run: |
-        echo "Creating DMG file..."
+        echo "Creating DMG installer..."
         
-        # Create a temporary directory for DMG contents
+        # Create temporary directory for DMG contents
         mkdir -p dmg_temp
+        
+        # Copy app to temp directory
         cp -r "dist/Loan Calculator Pro.app" dmg_temp/
         
-        # Create a symbolic link to Applications folder
+        # Create symbolic link to Applications
         ln -s /Applications dmg_temp/Applications
         
         # Create the DMG
-        hdiutil create -volname "Loan Calculator Pro" \
+        hdiutil create \
+          -volname "Loan Calculator Pro" \
           -srcfolder dmg_temp \
-          -ov -format UDZO \
+          -ov \
+          -format UDZO \
           -imagekey zlib-level=9 \
           LoanCalculatorPro.dmg
         
-        echo "DMG created successfully!"
+        echo "✓ DMG created successfully"
         ls -lh LoanCalculatorPro.dmg
     
     - name: Upload DMG as artifact
@@ -105,26 +94,12 @@ jobs:
       with:
         name: LoanCalculatorPro-macOS-DMG
         path: LoanCalculatorPro.dmg
-        retention-days: 30
+        retention-days: 90
     
-    - name: Upload App Bundle as artifact
+    - name: Upload build logs
+      if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: LoanCalculatorPro-macOS-App
-        path: dist/Loan Calculator Pro.app
-        retention-days: 30
-    
-    - name: Get version info
-      id: version
-      run: |
-        echo "version=1.0.0" >> $GITHUB_OUTPUT
-        echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-    
-    - name: Create Release (if triggered by tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: LoanCalculatorPro.dmg
-        body: |
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: build-logs
+        path: build/
+        retention-days: 7
