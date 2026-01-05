@@ -25,42 +25,133 @@ jobs:
     
     - name: Verify installation
       run: |
-        python -c "import PyQt6; print('PyQt6 version:', PyQt6.QtCore.qVersion())"
-        python -c "import openpyxl; print('openpyxl installed')"
-        python -c "import dateutil; print('dateutil installed')"
+        python -c "from PyQt6.QtCore import qVersion; print('PyQt6 version:', qVersion())"
+        python -c "import openpyxl; print('openpyxl version:', openpyxl.__version__)"
+        python -c "import dateutil; print('dateutil version:', dateutil.__version__)"
+        echo "All dependencies installed successfully!"
+    
+    - name: Create PyInstaller spec file
+      run: |
+        cat > loan_calculator.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+
+        block_cipher = None
+
+        a = Analysis(
+            ['loan_calculator.py'],
+            pathex=[],
+            binaries=[],
+            datas=[],
+            hiddenimports=[
+                'PyQt6.QtCore',
+                'PyQt6.QtGui',
+                'PyQt6.QtWidgets',
+                'PyQt6.sip',
+                'openpyxl',
+                'openpyxl.styles',
+                'openpyxl.styles.alignment',
+                'openpyxl.styles.borders',
+                'openpyxl.styles.fills',
+                'openpyxl.styles.fonts',
+                'openpyxl.utils',
+                'openpyxl.utils.cell',
+                'openpyxl.cell',
+                'openpyxl.cell.cell',
+                'dateutil',
+                'dateutil.relativedelta',
+                'dateutil.parser',
+            ],
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=[],
+            excludes=['tkinter', 'matplotlib', 'numpy', 'pandas'],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz,
+            a.scripts,
+            [],
+            exclude_binaries=True,
+            name='Loan Calculator Pro',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            console=False,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            name='Loan Calculator Pro',
+        )
+
+        app = BUNDLE(
+            coll,
+            name='Loan Calculator Pro.app',
+            icon=None,
+            bundle_identifier='com.loancalculator.pro',
+            info_plist={
+                'NSPrincipalClass': 'NSApplication',
+                'NSHighResolutionCapable': 'True',
+                'CFBundleShortVersionString': '1.0.0',
+                'CFBundleVersion': '1.0.0',
+            },
+        )
+        EOF
+        
+        echo "Spec file created:"
+        cat loan_calculator.spec
     
     - name: Build macOS application with PyInstaller
       run: |
-        pyinstaller \
-          --name "Loan Calculator Pro" \
-          --windowed \
-          --onedir \
-          --icon=NONE \
-          --osx-bundle-identifier com.loancalculator.pro \
-          --hidden-import PyQt6.QtCore \
-          --hidden-import PyQt6.QtGui \
-          --hidden-import PyQt6.QtWidgets \
-          --hidden-import openpyxl \
-          --hidden-import openpyxl.styles \
-          --hidden-import openpyxl.utils \
-          --hidden-import openpyxl.cell \
-          --hidden-import dateutil \
-          --hidden-import dateutil.relativedelta \
-          --collect-all PyQt6 \
-          --collect-all openpyxl \
-          loan_calculator.py
+        echo "Starting build process..."
+        pyinstaller loan_calculator.spec --noconfirm --clean
+        echo "Build process completed!"
     
     - name: Verify build
       run: |
-        echo "Listing dist directory:"
+        echo "Checking dist directory:"
         ls -la dist/
         
         if [ -d "dist/Loan Calculator Pro.app" ]; then
-          echo "✓ App bundle created successfully"
-          echo "App contents:"
+          echo "✅ App bundle created successfully"
+          echo ""
+          echo "App structure:"
           ls -la "dist/Loan Calculator Pro.app/Contents/"
+          echo ""
+          echo "MacOS folder:"
+          ls -la "dist/Loan Calculator Pro.app/Contents/MacOS/"
         else
-          echo "✗ Error: App bundle not found"
+          echo "❌ Error: App bundle not found"
+          echo "Contents of dist:"
+          find dist -type f
+          exit 1
+        fi
+    
+    - name: Test app launch (dry run)
+      run: |
+        echo "Checking if app is executable..."
+        if [ -x "dist/Loan Calculator Pro.app/Contents/MacOS/Loan Calculator Pro" ]; then
+          echo "✅ App executable is properly set"
+        else
+          echo "❌ App executable not found or not executable"
           exit 1
         fi
     
@@ -72,12 +163,19 @@ jobs:
         mkdir -p dmg_temp
         
         # Copy app to temp directory
+        echo "Copying app bundle..."
         cp -r "dist/Loan Calculator Pro.app" dmg_temp/
         
         # Create symbolic link to Applications
+        echo "Creating Applications symlink..."
         ln -s /Applications dmg_temp/Applications
         
+        # Verify DMG contents
+        echo "DMG contents:"
+        ls -la dmg_temp/
+        
         # Create the DMG
+        echo "Creating DMG file..."
         hdiutil create \
           -volname "Loan Calculator Pro" \
           -srcfolder dmg_temp \
@@ -86,20 +184,46 @@ jobs:
           -imagekey zlib-level=9 \
           LoanCalculatorPro.dmg
         
-        echo "✓ DMG created successfully"
+        echo ""
+        echo "✅ DMG created successfully!"
         ls -lh LoanCalculatorPro.dmg
+        
+        # Get file size
+        SIZE=$(ls -lh LoanCalculatorPro.dmg | awk '{print $5}')
+        echo "DMG Size: $SIZE"
     
     - name: Upload DMG as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LoanCalculatorPro-macOS-DMG
+        name: LoanCalculatorPro-macOS-v1.0.0
         path: LoanCalculatorPro.dmg
         retention-days: 90
+        compression-level: 0
     
-    - name: Upload build logs
-      if: failure()
+    - name: Upload App Bundle (for debugging)
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: build-logs
-        path: build/
+        name: LoanCalculatorPro-App-Bundle
+        path: dist/Loan Calculator Pro.app
         retention-days: 7
+    
+    - name: Create build summary
+      if: success()
+      run: |
+        echo "## ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Download Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "1. Go to the **Actions** tab" >> $GITHUB_STEP_SUMMARY
+        echo "2. Click on this workflow run" >> $GITHUB_STEP_SUMMARY
+        echo "3. Scroll to **Artifacts** section" >> $GITHUB_STEP_SUMMARY
+        echo "4. Download **LoanCalculatorPro-macOS-v1.0.0**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Installation on Mac" >> $GITHUB_STEP_SUMMARY
+        echo "1. Extract the downloaded ZIP file" >> $GITHUB_STEP_SUMMARY
+        echo "2. Open the DMG file" >> $GITHUB_STEP_SUMMARY
+        echo "3. Drag **Loan Calculator Pro** to **Applications** folder" >> $GITHUB_STEP_SUMMARY
+        echo "4. Right-click the app and select **Open** (first time only)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        SIZE=$(ls -lh LoanCalculatorPro.dmg | awk '{print $5}')
+        echo "**DMG Size:** $SIZE" >> $GITHUB_STEP_SUMMARY
