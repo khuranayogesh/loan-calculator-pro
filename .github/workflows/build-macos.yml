@@ -1,0 +1,234 @@
+name: Build macOS Application
+
+on:
+  # Trigger on push to main branch
+  push:
+    branches: [ main, master ]
+  
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+  
+  # Trigger on release
+  release:
+    types: [created]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install PyQt6==6.6.1 openpyxl python-dateutil py2app
+    
+    - name: Create setup.py for py2app
+      run: |
+        cat > setup.py << 'EOF'
+        from setuptools import setup
+
+        APP = ['loan_calculator.py']
+        DATA_FILES = []
+        OPTIONS = {
+            'argv_emulation': True,
+            'packages': ['PyQt6', 'openpyxl', 'dateutil', 'calendar', 'json', 'os'],
+            'includes': [
+                'PyQt6.QtCore',
+                'PyQt6.QtGui', 
+                'PyQt6.QtWidgets',
+                'openpyxl.styles',
+                'openpyxl.utils',
+                'dateutil.relativedelta'
+            ],
+            'plist': {
+                'CFBundleName': 'Loan Calculator Pro',
+                'CFBundleDisplayName': 'Loan Calculator Pro',
+                'CFBundleGetInfoString': "Professional Loan Calculator with Amortization Schedule",
+                'CFBundleIdentifier': "com.loancalculator.pro",
+                'CFBundleVersion': "1.0.0",
+                'CFBundleShortVersionString': "1.0.0",
+                'NSHumanReadableCopyright': "Copyright © 2024 Yogesh Khurana. All Rights Reserved",
+                'NSHighResolutionCapable': True,
+            }
+        }
+
+        setup(
+            app=APP,
+            name='Loan Calculator Pro',
+            data_files=DATA_FILES,
+            options={'py2app': OPTIONS},
+            setup_requires=['py2app'],
+        )
+        EOF
+        
+        cat setup.py
+    
+    - name: Build macOS application
+      run: |
+        echo "Building application..."
+        python setup.py py2app
+        
+        echo "Verifying build..."
+        ls -la dist/
+    
+    - name: Create DMG installer
+      run: |
+        echo "Creating DMG file..."
+        
+        # Create a temporary directory for DMG contents
+        mkdir -p dmg_temp
+        cp -r "dist/Loan Calculator Pro.app" dmg_temp/
+        
+        # Create a symbolic link to Applications folder
+        ln -s /Applications dmg_temp/Applications
+        
+        # Create the DMG
+        hdiutil create -volname "Loan Calculator Pro" \
+          -srcfolder dmg_temp \
+          -ov -format UDZO \
+          -imagekey zlib-level=9 \
+          LoanCalculatorPro.dmg
+        
+        echo "DMG created successfully!"
+        ls -lh LoanCalculatorPro.dmg
+    
+    - name: Upload DMG as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: LoanCalculatorPro-macOS-DMG
+        path: LoanCalculatorPro.dmg
+        retention-days: 30
+    
+    - name: Upload App Bundle as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: LoanCalculatorPro-macOS-App
+        path: dist/Loan Calculator Pro.app
+        retention-days: 30
+    
+    - name: Get version info
+      id: version
+      run: |
+        echo "version=1.0.0" >> $GITHUB_OUTPUT
+        echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+    
+    - name: Create Release (if triggered by tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: LoanCalculatorPro.dmg
+        body: |
+          ## Loan Calculator Pro for macOS
+          
+          **Version:** ${{ steps.version.outputs.version }}
+          **Build Date:** ${{ steps.version.outputs.date }}
+          
+          ### Installation Instructions:
+          1. Download the DMG file
+          2. Open the DMG file
+          3. Drag "Loan Calculator Pro" to the Applications folder
+          4. Launch from Applications
+          
+          ### Features:
+          - Complete loan amortization calculator
+          - Support for prepayments and bank charges
+          - Excel export functionality
+          - Interest rate revision tracking
+          - EMI exclusion management
+          
+          **Note:** On first launch, you may need to right-click and select "Open" to bypass macOS Gatekeeper.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+4. Add a commit message: "Add macOS build workflow"
+5. Click **"Commit changes"**
+
+## Step 5: Trigger the Build
+
+The build will automatically start! You have three ways to trigger it:
+
+### Method 1: Automatic (Already Triggered)
+The workflow runs automatically because you just committed the file.
+
+### Method 2: Manual Trigger
+1. Go to the **"Actions"** tab in your repository
+2. Click on **"Build macOS Application"** workflow
+3. Click **"Run workflow"** button
+4. Select branch (usually "main")
+5. Click green **"Run workflow"** button
+
+### Method 3: Push Any Change
+Any time you push code to the main branch, it will rebuild.
+
+## Step 6: Monitor the Build
+
+1. Click on the **"Actions"** tab
+2. You'll see your workflow running (orange dot = in progress)
+3. Click on the workflow run to see detailed logs
+4. The build typically takes **5-10 minutes**
+
+You'll see steps like:
+- ✅ Set up Python
+- ✅ Install dependencies
+- ✅ Build macOS application
+- ✅ Create DMG installer
+
+## Step 7: Download Your DMG File
+
+Once the build completes (green checkmark ✅):
+
+1. Scroll to the bottom of the workflow run page
+2. Look for **"Artifacts"** section
+3. You'll see two downloads:
+   - **LoanCalculatorPro-macOS-DMG** ← Download this!
+   - **LoanCalculatorPro-macOS-App** (the raw .app bundle)
+
+4. Click to download (it downloads as a ZIP file)
+5. Extract the ZIP to get your `LoanCalculatorPro.dmg`
+
+## Step 8: Test on macOS
+
+To test your DMG on a Mac:
+
+1. **Open the DMG file** by double-clicking it
+2. **Drag the app** to the Applications folder
+3. **Launch the app** from Applications
+4. If macOS blocks it (Gatekeeper):
+   - Right-click the app
+   - Select "Open"
+   - Click "Open" in the dialog
+
+## Advanced: Create Releases for Easy Distribution
+
+To create a proper release with a download link:
+
+1. In your repository, click **"Releases"** (right sidebar)
+2. Click **"Create a new release"**
+3. Click **"Choose a tag"** → type `v1.0.0` → **"Create new tag"**
+4. Title: `Loan Calculator Pro v1.0.0`
+5. Description: Add release notes
+6. Click **"Publish release"**
+
+This will trigger the build and automatically attach the DMG to the release!
+
+## Understanding the Workflow Structure
+```
+.github/
+└── workflows/
+    └── build-macos.yml    # Your build instructions
+
+Your workflow does:
+1. Spins up a macOS virtual machine (free on GitHub)
+2. Installs Python and dependencies
+3. Runs py2app to create a .app bundle
+4. Creates a DMG installer
+5. Uploads the DMG for download
